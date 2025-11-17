@@ -114,6 +114,7 @@ def get_revisions():
                     country = "Error"
 
             article_revisions["revisions"].append({
+                "revision_id": revid,
                 "user": user,
                 "timestamp": timestamp,
                 "diff": diff,
