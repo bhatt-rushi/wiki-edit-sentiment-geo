@@ -74,22 +74,23 @@ var (
 
 // Revision represents a single revision entry in the database
 type Revision struct {
-	RevisionID      string
-	OriginalRevid   int
-	ArticleURL      string
-	User            string
-	Timestamp       string
-	DiffBefore      string
-	DiffAfter       string
-	ChangeType      string
-	ChangeDesc      string
-	BiasScoreBefore float64
-	BiasScoreAfter  float64
-	BiasDelta       float64
-	BiasLabelBefore string
-	BiasLabelAfter  string
-	Topic           string
-	IsIP            bool
+	RevisionID        string
+	OriginalRevid     int
+	ArticleURL        string
+	User              string
+	Timestamp         string
+	DiffBefore        string
+	DiffAfter         string
+	ChangeType        string
+	ChangeDesc        string
+	BiasScoreBefore   float64
+	BiasScoreAfter    float64
+	BiasDelta         float64
+	BiasLabelBefore   string
+	BiasLabelAfter    string
+	Topic             string
+	AIPoliticalStance string
+	IsIP              bool
 }
 
 // Model represents the Bubble Tea model
@@ -105,33 +106,35 @@ type model struct {
 	state           appState
 	currentRevision Revision
 	currentStep     int // 0: Select Bias, 1: Select Topic
-	
-	dashboard       DashboardModel
+
+	dashboard DashboardModel
 
 	selectedBias  string
 	selectedTopic string
 
 	// Settings / Filtering
-	filterDesc    string
-	filterTopic   string
-	currentSort   string
-	shouldClearDB bool // Flag to trigger DB clear on form submit
+	filterDesc     string
+	filterTopic    string
+	filterStance   string
+	currentSort    string
+	shouldClearDB  bool // Flag to trigger DB clear on form submit
 	settingsCursor int
-	
+
 	// Feedback
 	statusMessage string
 	statusTimer   int // Ticks to show status
 
 	// UI State
-	uniqueDescs []string // Cache of unique descriptions
-	uniqueTopics []string // Cache of unique topics from DB
-	choices     []string // Current choices to display (points to biasCategories or topicCategories)
-	cursor      int      // which item our cursor is pointing at
-	quitting    bool
-	width       int
-	height      int
-	birdFrame   string
-	scoredCount int
+	uniqueDescs   []string // Cache of unique descriptions
+	uniqueTopics  []string // Cache of unique topics from DB
+	uniqueStances []string // Cache of unique political stances from DB
+	choices       []string // Current choices to display (points to biasCategories or topicCategories)
+	cursor        int      // which item our cursor is pointing at
+	quitting      bool
+	width         int
+	height        int
+	birdFrame     string
+	scoredCount   int
 
 	// Caching and Pre-loading
 	diffCache map[string]string
@@ -166,9 +169,10 @@ func newModel(db *sql.DB, biasCats []string, topicCats []string, scoredCount int
 		state:           stateReview,
 		currentSort:     SortBiasDesc, // Default sort
 	}
-	
+
 	m.uniqueDescs = m.getUniqueDescriptions()
 	m.uniqueTopics = m.getUniqueTopics()
+	m.uniqueStances = m.getUniqueStances()
 
 	// Initial fetch with default settings
 	m.fetchRevisions()
@@ -215,12 +219,31 @@ func (m *model) getUniqueTopics() []string {
 	return topics
 }
 
+func (m *model) getUniqueStances() []string {
+	rows, err := m.db.Query("SELECT ai_political_stance, COUNT(*) as cnt FROM revisions WHERE manual_bias IS NULL AND ai_political_stance IS NOT NULL AND ai_political_stance != '' GROUP BY ai_political_stance ORDER BY cnt DESC")
+	if err != nil {
+		logToFile(fmt.Sprintf("Failed to fetch stances: %v", err))
+		return []string{}
+	}
+	defer rows.Close()
+
+	var stances []string
+	for rows.Next() {
+		var stance string
+		var count int
+		if err := rows.Scan(&stance, &count); err == nil {
+			stances = append(stances, stance)
+		}
+	}
+	return stances
+}
+
 func (m *model) fetchRevisions() {
 	query := `
 		SELECT id, original_revid, article_url, user, timestamp, 
 		       diff_before, diff_after, change_type, change_desc, 
 			   bias_score_before, bias_score_after, bias_delta, 
-			   bias_label_before, bias_label_after, ai_topic, is_ip 
+			   bias_label_before, bias_label_after, ai_topic, ai_political_stance, is_ip 
 		FROM revisions 
 		WHERE manual_bias IS NULL
 	`
@@ -234,6 +257,11 @@ func (m *model) fetchRevisions() {
 	if m.filterTopic != "" && m.filterTopic != "Any" {
 		query += " AND ai_topic = ?"
 		args = append(args, m.filterTopic)
+	}
+
+	if m.filterStance != "" && m.filterStance != "Any" {
+		query += " AND ai_political_stance = ?"
+		args = append(args, m.filterStance)
 	}
 
 	switch m.currentSort {
@@ -255,14 +283,14 @@ func (m *model) fetchRevisions() {
 		query += " ORDER BY bias_score_after DESC"
 	}
 
-		query += " LIMIT 100" // Fetch batch of 100 to keep memory low
-	
-		rows, err := m.db.Query(query, args...)
-		if err != nil {
-			logToFile(fmt.Sprintf("Query error: %v", err))
-			return
-		}
-		defer rows.Close()
+	query += " LIMIT 100" // Fetch batch of 100 to keep memory low
+
+	rows, err := m.db.Query(query, args...)
+	if err != nil {
+		logToFile(fmt.Sprintf("Query error: %v", err))
+		return
+	}
+	defer rows.Close()
 	var newRevisions []Revision
 	for rows.Next() {
 		var rev Revision
@@ -271,7 +299,7 @@ func (m *model) fetchRevisions() {
 			&rev.RevisionID, &rev.OriginalRevid, &rev.ArticleURL, &rev.User, &rev.Timestamp,
 			&rev.DiffBefore, &rev.DiffAfter, &rev.ChangeType, &rev.ChangeDesc,
 			&rev.BiasScoreBefore, &rev.BiasScoreAfter, &rev.BiasDelta,
-			&rev.BiasLabelBefore, &rev.BiasLabelAfter, &rev.Topic, &isIP,
+			&rev.BiasLabelBefore, &rev.BiasLabelAfter, &rev.Topic, &rev.AIPoliticalStance, &isIP,
 		); err != nil {
 			logToFile(fmt.Sprintf("Scan error: %v", err))
 			continue
@@ -281,7 +309,7 @@ func (m *model) fetchRevisions() {
 	}
 
 	m.unscoredRevisions = newRevisions
-	
+
 	// Reset current revision if any
 	if len(m.unscoredRevisions) > 0 {
 		m.currentRevision = m.unscoredRevisions[0]
@@ -375,7 +403,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.settingsCursor--
 				}
 			case "down", "j":
-				if m.settingsCursor < 4 { // 0:Sort, 1:Desc, 2:Topic, 3:Clear, 4:Save&Close
+				// 0:Sort, 1:Desc, 2:Topic, 3:Stance, 4:Clear, 5:Save&Close
+				if m.settingsCursor < 5 {
 					m.settingsCursor++
 				}
 			case "left", "h":
@@ -403,7 +432,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 							} else {
 								m.filterDesc = allDescs[len(allDescs)-1]
 							}
-							if m.filterDesc == "Any" { m.filterDesc = "" }
+							if m.filterDesc == "Any" {
+								m.filterDesc = ""
+							}
 							break
 						}
 					}
@@ -420,7 +451,28 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 							} else {
 								m.filterTopic = allTopics[len(allTopics)-1]
 							}
-							if m.filterTopic == "Any" { m.filterTopic = "" }
+							if m.filterTopic == "Any" {
+								m.filterTopic = ""
+							}
+							break
+						}
+					}
+				} else if m.settingsCursor == 3 { // Stance
+					allStances := append([]string{"Any"}, m.uniqueStances...)
+					curr := "Any"
+					if m.filterStance != "" {
+						curr = m.filterStance
+					}
+					for i, t := range allStances {
+						if t == curr {
+							if i > 0 {
+								m.filterStance = allStances[i-1]
+							} else {
+								m.filterStance = allStances[len(allStances)-1]
+							}
+							if m.filterStance == "Any" {
+								m.filterStance = ""
+							}
 							break
 						}
 					}
@@ -450,7 +502,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 							} else {
 								m.filterDesc = allDescs[0]
 							}
-							if m.filterDesc == "Any" { m.filterDesc = "" }
+							if m.filterDesc == "Any" {
+								m.filterDesc = ""
+							}
 							break
 						}
 					}
@@ -467,15 +521,36 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 							} else {
 								m.filterTopic = allTopics[0]
 							}
-							if m.filterTopic == "Any" { m.filterTopic = "" }
+							if m.filterTopic == "Any" {
+								m.filterTopic = ""
+							}
+							break
+						}
+					}
+				} else if m.settingsCursor == 3 { // Stance
+					allStances := append([]string{"Any"}, m.uniqueStances...)
+					curr := "Any"
+					if m.filterStance != "" {
+						curr = m.filterStance
+					}
+					for i, t := range allStances {
+						if t == curr {
+							if i < len(allStances)-1 {
+								m.filterStance = allStances[i+1]
+							} else {
+								m.filterStance = allStances[0]
+							}
+							if m.filterStance == "Any" {
+								m.filterStance = ""
+							}
 							break
 						}
 					}
 				}
 			case "enter", " ":
-				if m.settingsCursor == 3 { // Clear Labels
+				if m.settingsCursor == 4 { // Clear Labels
 					m.shouldClearDB = !m.shouldClearDB
-				} else if m.settingsCursor == 4 { // Save & Close
+				} else if m.settingsCursor == 5 { // Save & Close
 					m.state = stateReview
 					m.statusMessage = "Settings applied!"
 					m.statusTimer = 20
@@ -491,7 +566,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.scoredCount = 0
 						m.shouldClearDB = false
 					}
-					
+
 					m.fetchRevisions()
 					if len(m.unscoredRevisions) > 0 {
 						cmds = append(cmds, processDiffCmd(m.currentRevision.RevisionID, m.currentRevision.DiffBefore, m.currentRevision.DiffAfter))
@@ -608,7 +683,7 @@ func (m model) View() string {
 	if m.state == stateSettings {
 		var s strings.Builder
 		s.WriteString(titleStyle.Render("Settings") + "\n\n")
-		
+
 		// Helper to render a line
 		renderLine := func(i int, label, value string) {
 			cursor := "  "
@@ -620,30 +695,54 @@ func (m model) View() string {
 
 		// 0: Sort Order
 		sortVal := m.currentSort
-		if m.settingsCursor == 0 { sortVal = fmt.Sprintf("← %s →", sortVal) }
+		if m.settingsCursor == 0 {
+			sortVal = fmt.Sprintf("← %s →", sortVal)
+		}
 		renderLine(0, "Sort Order", sortVal)
 
 		// 1: Description Filter
 		descVal := m.filterDesc
-		if descVal == "" { descVal = "Any (All Descriptions)" }
-		if len(descVal) > 40 { descVal = descVal[:37] + "..." }
-		if m.settingsCursor == 1 { descVal = fmt.Sprintf("← %s →", descVal) }
+		if descVal == "" {
+			descVal = "Any (All Descriptions)"
+		}
+		if len(descVal) > 40 {
+			descVal = descVal[:37] + "..."
+		}
+		if m.settingsCursor == 1 {
+			descVal = fmt.Sprintf("← %s →", descVal)
+		}
 		renderLine(1, "Filter by Description", descVal)
 
 		// 2: Topic Filter
 		topicVal := m.filterTopic
-		if topicVal == "" { topicVal = "Any (All Topics)" }
-		if m.settingsCursor == 2 { topicVal = fmt.Sprintf("← %s →", topicVal) }
+		if topicVal == "" {
+			topicVal = "Any (All Topics)"
+		}
+		if m.settingsCursor == 2 {
+			topicVal = fmt.Sprintf("← %s →", topicVal)
+		}
 		renderLine(2, "Filter by AI Topic", topicVal)
 
-		// 3: Clear DB
-		clearVal := "[ ]"
-		if m.shouldClearDB { clearVal = "[x]" }
-		renderLine(3, "Clear ALL Manual Labels?", clearVal)
+		// 3: Stance Filter
+		stanceVal := m.filterStance
+		if stanceVal == "" {
+			stanceVal = "Any (All Stances)"
+		}
+		if m.settingsCursor == 3 {
+			stanceVal = fmt.Sprintf("← %s →", stanceVal)
+		}
+		renderLine(3, "Filter by AI Stance", stanceVal)
 
-		// 4: Save & Close
+		// 4: Clear DB
+		clearVal := "[ ]"
+		if m.shouldClearDB {
+			clearVal = "[x]"
+		}
+		renderLine(4, "Clear ALL Manual Labels?", clearVal)
+
+		// 5: Save & Close
 		cursor := "  "
-		if m.settingsCursor == 4 {
+		if m.settingsCursor == 5 {
 			cursor = selectedStyle.Render("> ")
 		}
 		s.WriteString(fmt.Sprintf("\n%s%s\n", cursor, "Save & Close"))
@@ -651,7 +750,7 @@ func (m model) View() string {
 		s.WriteString(helpStyle.Render("\nUse ↑/↓ to select, ←/→ to change values, Enter to toggle/save."))
 		return docStyle.Render(s.String())
 	}
-	
+
 	// Feedback Message
 	var feedback string
 	if m.statusMessage != "" {
@@ -683,12 +782,12 @@ func (m model) View() string {
 	info := lipgloss.JoinVertical(lipgloss.Left,
 		infoStyle.Render(fmt.Sprintf("User: %s  •  Time: %s  •  ID: %s", m.currentRevision.User, m.currentRevision.Timestamp, m.currentRevision.RevisionID)),
 		infoStyle.Render(fmt.Sprintf("Desc: %s", m.currentRevision.ChangeDesc)),
-		infoStyle.Render(fmt.Sprintf("AI Topic: %s", m.currentRevision.Topic)),
+		infoStyle.Render(fmt.Sprintf("AI Topic: %s  •  AI Stance: %s", m.currentRevision.Topic, m.currentRevision.AIPoliticalStance)),
 		sentStyle.Render(fmt.Sprintf("AI Bias: %.2f (%s) → %.2f (%s) [Delta: %.2f]",
 			m.currentRevision.BiasScoreBefore, m.currentRevision.BiasLabelBefore,
 			m.currentRevision.BiasScoreAfter, m.currentRevision.BiasLabelAfter,
 			m.currentRevision.BiasDelta)),
-		infoStyle.Render(fmt.Sprintf("Scored: %d | Filter: %.20s / %s | Sort: %s", m.scoredCount, m.filterDesc, m.filterTopic, m.currentSort)),
+		infoStyle.Render(fmt.Sprintf("Scored: %d | Filter: D:%.15s / T:%s / S:%s | Sort: %s", m.scoredCount, m.filterDesc, m.filterTopic, m.filterStance, m.currentSort)),
 	)
 
 	// Diff Box
@@ -737,7 +836,7 @@ func (m model) View() string {
 		info,
 		diffView,
 		content,
-	help,
+		help,
 	))
 }
 

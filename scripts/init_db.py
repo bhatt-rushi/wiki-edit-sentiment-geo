@@ -37,6 +37,7 @@ def init_db():
             bias_label_before TEXT,
             bias_label_after TEXT,
             ai_topic TEXT,
+            ai_political_stance TEXT,
             is_ip INTEGER,
             manual_bias TEXT,
             manual_topic TEXT,
