@@ -2,6 +2,80 @@
 
 A hybrid Python/Go application that analyzes Wikipedia revision histories for semantic changes, political bias, and topic categorization using AI models. It features a terminal-based user interface (TUI) for manual review and a real-time dashboard for visualizing trends.
 
+```mermaid
+graph TD
+    %% Styles
+    classDef storage fill:#eee,stroke:#333,stroke-width:2px;
+    classDef ext fill:#f9f,stroke:#333,stroke-width:2px;
+    classDef process fill:#bbf,stroke:#333,stroke-width:2px;
+    classDef ai fill:#dfd,stroke:#333,stroke-width:2px;
+
+    %% Data Stores
+    WikiDB[(SQLite: data/wiki.db)]:::storage
+
+    %% External Services
+    Wikidata((Wikidata API)):::ext
+    WikiAPI((Wikipedia API)):::ext
+    GTrans((Google Translate)):::ext
+
+    %% Phase 1: Setup
+    subgraph "Phase 1: Setup & Discovery"
+        Init[scripts/init_db.py]:::process --> WikiDB
+        GetArts[scripts/get_articles.py]:::process
+        SPARQL[queries/query.sparql] --> GetArts
+        GetArts -- Query Region --> Wikidata
+        Wikidata -- Article URLs & Coords --> GetArts
+        GetArts -- Insert Articles --> WikiDB
+    end
+
+    %% Phase 2: AI Analysis
+    subgraph "Phase 2: Acquisition & AI Enrichment"
+        GetRevs[scripts/get_revisions.py]:::process
+        WikiDB -- Read URLs --> GetRevs
+        GetRevs -- Fetch History --> WikiAPI
+        WikiAPI -- Raw Diffs --> GetRevs
+        
+        subgraph "Processing Pipeline"
+            EditTypes{mwedittypes Library}:::process
+            Filter[Filter: Non-Semantic/Trivial Changes]
+            
+            BiasModel[[Model: newsmediabias/UnBIAS-classifier]]:::ai
+            TopicModel[[Model: MoritzLaurer/mDeBERTa-v3-base]]:::ai
+            
+            GetRevs --> EditTypes
+            EditTypes --> Filter
+            Filter -- Structured Change --> BiasModel
+            Filter -- Structured Change --> TopicModel
+        end
+        
+        BiasModel -- Bias Score/Label --> WikiDB
+        TopicModel -- Topic Category --> WikiDB
+    end
+
+    %% Phase 3: Human Review
+    subgraph "Phase 3: Human Verification (TUI)"
+        TUI[main.go]:::process
+        TUIFilters[User Filters: Topic / Desc / Stance]
+        
+        WikiDB -- Stream Revisions --> TUI
+        TUI -- "Translate Content (gtranslate)" --> GTrans
+        GTrans -- English Text --> TUI
+        TUIFilters -- Apply View --> TUI
+        TUI -- "Submit Labels (Manual Bias/Topic)" --> WikiDB
+    end
+
+    %% Phase 4: Reporting
+    subgraph "Phase 4: Insight Generation"
+        Report[scripts/compare_labels.py]:::process
+        WikiDB -- Fetch All Data --> Report
+        
+        Report --> Console[Console: Confusion Matrix & F1 Scores]
+        Report --> Map1[File: agreement_map.geojson]
+        Report --> Map2[File: ai_survey_map.geojson]
+        Report --> Outliers[Console: Temporal Outliers Table]
+    end
+```
+
 ## Features
 
 *   **Revision Fetching**: Automatically retrieves revision histories from Wikipedia articles.
