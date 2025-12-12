@@ -180,7 +180,7 @@ This command exports two GeoJSON files:
 *   `ai_survey_map.geojson`: Visualizes AI-detected dominant topics and stances for all articles.
 
 ```bash
-app compare-labels
+app compare-labels [article_url]
 ```
 
 ## Interface & Workflow

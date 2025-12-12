@@ -31,11 +31,14 @@ def main():
             init_db()
             return
         elif cmd == "compare-labels":
-            compare_labels()
+            article_url = None
+            if len(sys.argv) > 2:
+                article_url = sys.argv[2]
+            compare_labels(article_url)
             return
         else:
             print(f"Unknown command: {cmd}")
-            print("Usage: app [revision-fetch-translated [--debug] | fetch-articles | init-db | compare-labels]")
+            print("Usage: app [revision-fetch-translated [--debug] | fetch-articles | init-db | compare-labels [article_url]]")
             return
 
     # Default behavior if no arguments provided (check DB and run if empty)

@@ -121,7 +121,7 @@ def print_guide():
     print("   - Support: The number of human-labeled samples for that category.")
     print("="*75 + "\n")
 
-def main():
+def main(article_url=None):
     if not os.path.exists(DB_PATH):
         print(f"Error: Database not found at {DB_PATH}")
         return
@@ -141,11 +141,16 @@ def main():
             r.bias_score_after
         FROM revisions r
         LEFT JOIN articles a ON r.article_url = a.url
-        WHERE r.manual_topic IS NOT NULL OR r.manual_bias IS NOT NULL
+        WHERE (r.manual_topic IS NOT NULL OR r.manual_bias IS NOT NULL)
     """
     
+    params = []
+    if article_url:
+        query += " AND r.article_url = ?"
+        params.append(article_url)
+
     try:
-        c.execute(query)
+        c.execute(query, tuple(params))
         rows = c.fetchall()
     except sqlite3.OperationalError as e:
         print(f"Database error: {e}")
@@ -154,9 +159,12 @@ def main():
     
     if not rows:
         print("No manually labeled data found in the database.")
-        conn.close()
-        return
-
+        if article_url:
+             print(f"(Filtered by article: {article_url})")
+        # We don't return here because we might want to see unlabeled data for this article
+        # But if there are no rows for manual data, the labeled reports will just be empty.
+        # Let's proceed to allow unlabeled data to be shown.
+    
     # Metrics
     topic_matrix = defaultdict(lambda: defaultdict(int))
     stance_matrix = defaultdict(lambda: defaultdict(int))
@@ -327,23 +335,31 @@ def main():
     print_guide()
     
     # Process Unlabeled Data
-    process_unlabeled_data(conn)
+    process_unlabeled_data(conn, article_url)
     
     # Analyze Trends
-    analyze_trends(conn)
+    analyze_trends(conn, article_url)
     
     conn.close()
 
-def analyze_trends(conn):
+def analyze_trends(conn, article_url=None):
     print("\n" + "="*75)
     print("PART 3: Temporal Outliers (Activity & Bias)")
     print("="*75)
     
     c = conn.cursor()
     # Fetch timestamps and bias scores
-    query = "SELECT timestamp, bias_score_after FROM revisions ORDER BY timestamp"
+    query = "SELECT timestamp, bias_score_after FROM revisions"
+    params = []
+    
+    if article_url:
+        query += " WHERE article_url = ?"
+        params.append(article_url)
+        
+    query += " ORDER BY timestamp"
+    
     try:
-        c.execute(query)
+        c.execute(query, tuple(params))
         rows = c.fetchall()
     except sqlite3.OperationalError:
         return
@@ -424,7 +440,7 @@ def analyze_trends(conn):
     
     print("\n" + "="*75)
 
-def process_unlabeled_data(conn):
+def process_unlabeled_data(conn, article_url=None):
     print("\n" + "="*75)
     print("PART 2: AI Survey on Unlabeled Data")
     print("="*75)
@@ -442,8 +458,13 @@ def process_unlabeled_data(conn):
         WHERE r.manual_topic IS NULL AND r.manual_bias IS NULL
     """
     
+    params = []
+    if article_url:
+        query += " AND r.article_url = ?"
+        params.append(article_url)
+    
     try:
-        c.execute(query)
+        c.execute(query, tuple(params))
         rows = c.fetchall()
     except sqlite3.OperationalError as e:
         print(f"Database error: {e}")
