@@ -18,9 +18,18 @@ def parse_wkt(wkt_str):
     if not wkt_str: return None
     return wkt_str.upper()
 
-def get_articles():
+def get_articles(specific_url=None):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
+
+    if specific_url:
+        # Generate a random coordinate for the single article
+        clean_coord = get_random_coord()
+        c.execute("INSERT OR REPLACE INTO articles (url, coord) VALUES (?, ?)", (specific_url, clean_coord))
+        conn.commit()
+        conn.close()
+        print(f"Inserted article {specific_url} into {DB_PATH}")
+        return
 
     # Clear existing articles to avoid duplicates if re-run without full DB reset
     c.execute("DELETE FROM articles")
