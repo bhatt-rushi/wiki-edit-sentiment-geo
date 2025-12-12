@@ -118,9 +118,16 @@ pip install .
 ### 3. Go Setup (TUI)
 Install the Go dependencies and build the application.
 
+**For Linux/macOS:**
 ```bash
 go mod tidy
 go build -o wiki-analyzer .
+```
+
+**For Windows:**
+```bash
+go mod tidy
+go build -o wiki-analyzer.exe .
 ```
 
 ## Usage
