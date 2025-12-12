@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "wiki-semantic-revisions"
+version = "0.1.0"
+description = "Fetch and filter Wikipedia revisions for semantic information changes"
+readme = "README.md"
+authors = [{name = "Developer", email = "dev@example.com"}]
+dependencies = [
+    "requests",
+    "beautifulsoup4",
+    "mwparserfromhell",
+    "mwedittypes",
+    "transformers",
+    "torch",
+    "sentencepiece",
+    "protobuf",
+    "accelerate"
+]
+requires-python = ">=3.8"
+
+[project.scripts]
+app = "main:main"

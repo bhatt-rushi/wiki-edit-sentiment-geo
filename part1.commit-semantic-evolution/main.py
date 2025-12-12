@@ -1,27 +1,68 @@
 import os
+import sys
+import sqlite3
 from scripts.get_articles import get_articles
 from scripts.get_revisions import get_revisions
+from scripts.init_db import init_db
+
+DB_PATH = "data/wiki.db"
 
 def main():
     """
     Main function to orchestrate the data fetching process.
+    Supports CLI commands:
+      app revision-fetch-translated
+      app fetch-articles
+      app init-db
     """
-    articles_file = "data/articles.json"
-    revisions_file = "data/revisions.json"
+    if len(sys.argv) > 1:
+        cmd = sys.argv[1]
+        debug_mode = "--debug" in sys.argv
+        
+        if cmd == "revision-fetch-translated":
+            get_revisions(debug_mode=debug_mode)
+            return
+        elif cmd == "fetch-articles":
+            get_articles()
+            return
+        elif cmd == "init-db":
+            init_db()
+            return
+        else:
+            print(f"Unknown command: {cmd}")
+            print("Usage: app [revision-fetch-translated [--debug] | fetch-articles | init-db]")
+            return
 
-    if not os.path.exists(articles_file) or os.path.getsize(articles_file) == 0:
-        print("articles.json not found or is empty. Fetching articles...")
+    # Default behavior if no arguments provided (check DB and run if empty)
+    if not os.path.exists(DB_PATH) or os.path.getsize(DB_PATH) == 0:
+        print("Database not found or is empty. Initializing DB...")
+        init_db()
+        print("Finished initializing DB.")
+
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    
+    # Check if articles exist
+    c.execute("SELECT COUNT(*) FROM articles")
+    article_count = c.fetchone()[0]
+    if article_count == 0:
+        print("No articles found in DB. Fetching articles...")
         get_articles()
         print("Finished fetching articles.")
     else:
-        print("articles.json already exists and is not empty. Skipping.")
+        print(f"{article_count} articles already exist. Skipping article fetch.")
 
-    if not os.path.exists(revisions_file) or os.path.getsize(revisions_file) == 0:
-        print("revisions.json not found or is empty. Fetching revisions...")
+    # Check if revisions exist
+    c.execute("SELECT COUNT(*) FROM revisions")
+    revision_count = c.fetchone()[0]
+    if revision_count == 0:
+        print("No revisions found in DB. Fetching revisions...")
         get_revisions()
         print("Finished fetching revisions.")
     else:
-        print("revisions.json already exists and is not empty. Skipping.")
+        print(f"{revision_count} revisions already exist. Skipping revision fetch.")
+    
+    conn.close()
 
 if __name__ == "__main__":
     main()

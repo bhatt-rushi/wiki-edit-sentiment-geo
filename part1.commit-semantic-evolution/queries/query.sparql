@@ -36,4 +36,3 @@ SELECT DISTINCT ?item ?itemLabel ?coord ?article WHERE {
   FILTER(BOUND(?article))
   SERVICE wikibase:label { bd:serviceParam wikibase:language "zh,en". }
 }
-LIMIT 1
