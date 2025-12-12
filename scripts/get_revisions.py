@@ -320,8 +320,38 @@ def get_revisions(debug_mode=None):
                     is_ip = _is_ip_address(user)
 
                     text_for_analysis = after_text if after_text.strip() else before_text
-                    ai_topic = predict_topic(text_for_analysis)
-                    ai_political_stance = predict_political_stance(text_for_analysis)
+                    
+                    # Add context for AI analysis
+                    ai_context = text_for_analysis
+                    if after_text.strip() and curr_content:
+                        # Find all occurrences
+                        try:
+                            matches = [m.start() for m in re.finditer(re.escape(after_text), curr_content)]
+                        except Exception:
+                            matches = []
+
+                        if matches:
+                            best_idx = matches[0] # Default to first
+                            
+                            # If ambiguous and we have a hint from before_text
+                            if len(matches) > 1 and before_text.strip() and prev_content:
+                                try:
+                                    # Find approximate location of before_text in prev_content
+                                    prev_matches = [m.start() for m in re.finditer(re.escape(before_text), prev_content)]
+                                    if prev_matches:
+                                        # Use the first prev match as hint (could be improved, but better than nothing)
+                                        hint_idx = prev_matches[0]
+                                        # Find closest match in curr
+                                        best_idx = min(matches, key=lambda x: abs(x - hint_idx))
+                                except Exception:
+                                    pass
+
+                            start = max(0, best_idx - 500)
+                            end = min(len(curr_content), best_idx + len(after_text) + 500)
+                            ai_context = curr_content[start:end]
+
+                    ai_topic = predict_topic(ai_context)
+                    ai_political_stance = predict_political_stance(ai_context)
 
                     # Insert into SQLite
                     c.execute('''
@@ -329,8 +359,8 @@ def get_revisions(debug_mode=None):
                             id, original_revid, article_url, user, timestamp,
                             diff_before, diff_after, change_type, change_desc,
                             bias_score_before, bias_score_after, bias_delta,
-                            bias_label_before, bias_label_after, ai_topic, ai_political_stance, is_ip
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            bias_label_before, bias_label_after, ai_topic, ai_political_stance, is_ip, content
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ''', (
                         sub_id,
                         rev.get("revid"), # original_revid
@@ -348,7 +378,8 @@ def get_revisions(debug_mode=None):
                         label_after,
                         ai_topic,
                         ai_political_stance,
-                        1 if is_ip else 0
+                        1 if is_ip else 0,
+                        ai_context
                     ))
                     if debug_mode: print(f"    Saved sub-rev {sub_id} | Topic: {ai_topic} | Stance: {ai_political_stance} | Bias Delta: {diff_score:.4f}")
                     conn.commit() # Commit immediately after saving a revision

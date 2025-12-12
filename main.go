@@ -91,6 +91,7 @@ type Revision struct {
 	Topic             string
 	AIPoliticalStance string
 	IsIP              bool
+	Content           string
 }
 
 // Model represents the Bubble Tea model
@@ -138,46 +139,55 @@ type model struct {
 
 	// Caching and Pre-loading
 	diffCache map[string]string
-	isReady   bool
-
-	viewport viewport.Model
-}
-
-type diffProcessedMsg struct {
-	id      string
-	content string
-}
-
-func newModel(db *sql.DB, biasCats []string, topicCats []string, scoredCount int) model {
-	vp := viewport.New(0, 0)
-	vp.Style = lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("63")).
-		PaddingRight(2)
-
-	m := model{
-		db:              db,
-		biasCategories:  biasCats,
-		topicCategories: topicCats,
-		choices:         biasCats, // Start with Bias categories
-		currentStep:     0,        // Start at step 0
-		birdFrame:       birdStanding,
-		scoredCount:     scoredCount,
-		diffCache:       make(map[string]string),
-		isReady:         false,
-		viewport:        vp,
-		state:           stateReview,
-		currentSort:     SortBiasDesc, // Default sort
+		isReady   bool
+	
+		viewport            viewport.Model
+		fullContentViewport viewport.Model
 	}
-
-	m.uniqueDescs = m.getUniqueDescriptions()
-	m.uniqueTopics = m.getUniqueTopics()
-	m.uniqueStances = m.getUniqueStances()
-
-	// Initial fetch with default settings
-	m.fetchRevisions()
-	return m
-}
+	
+	type diffProcessedMsg struct {
+		id      string
+		content string
+	}
+	
+	func newModel(db *sql.DB, biasCats []string, topicCats []string, scoredCount int) model {
+		vp := viewport.New(0, 0)
+		vp.Style = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color("63")).
+			PaddingRight(2)
+	
+		vpFull := viewport.New(0, 0)
+		vpFull.Style = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color("62")). // Different color
+			PaddingRight(2)
+	
+		m := model{
+			db:                  db,
+			biasCategories:      biasCats,
+			topicCategories:     topicCats,
+			choices:             biasCats, // Start with Bias categories
+			currentStep:         0,        // Start at step 0
+			birdFrame:           birdStanding,
+			scoredCount:         scoredCount,
+			diffCache:           make(map[string]string),
+			isReady:             false,
+			viewport:            vp,
+			fullContentViewport: vpFull,
+			state:               stateReview,
+			currentSort:         SortBiasDesc, // Default sort
+		}
+	
+		m.uniqueDescs = m.getUniqueDescriptions()
+		m.uniqueTopics = m.getUniqueTopics()
+		m.uniqueStances = m.getUniqueStances()
+	
+		// Initial fetch with default settings
+		m.fetchRevisions()
+		return m
+	}
+	
 
 func (m *model) getUniqueDescriptions() []string {
 	rows, err := m.db.Query("SELECT change_desc, COUNT(*) as cnt FROM revisions WHERE manual_bias IS NULL GROUP BY change_desc ORDER BY cnt DESC LIMIT 50")
@@ -243,7 +253,7 @@ func (m *model) fetchRevisions() {
 		SELECT id, original_revid, article_url, user, timestamp, 
 		       diff_before, diff_after, change_type, change_desc, 
 			   bias_score_before, bias_score_after, bias_delta, 
-			   bias_label_before, bias_label_after, ai_topic, ai_political_stance, is_ip 
+			   bias_label_before, bias_label_after, ai_topic, ai_political_stance, is_ip, content
 		FROM revisions 
 		WHERE manual_bias IS NULL
 	`
@@ -299,7 +309,7 @@ func (m *model) fetchRevisions() {
 			&rev.RevisionID, &rev.OriginalRevid, &rev.ArticleURL, &rev.User, &rev.Timestamp,
 			&rev.DiffBefore, &rev.DiffAfter, &rev.ChangeType, &rev.ChangeDesc,
 			&rev.BiasScoreBefore, &rev.BiasScoreAfter, &rev.BiasDelta,
-			&rev.BiasLabelBefore, &rev.BiasLabelAfter, &rev.Topic, &rev.AIPoliticalStance, &isIP,
+			&rev.BiasLabelBefore, &rev.BiasLabelAfter, &rev.Topic, &rev.AIPoliticalStance, &isIP, &rev.Content,
 		); err != nil {
 			logToFile(fmt.Sprintf("Scan error: %v", err))
 			continue
@@ -342,14 +352,28 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 		
-		vpHeight := int(float64(m.height) * 0.35)
-		if vpHeight < 5 { vpHeight = 5 }
+		// Split height: 20% diff, 40% full content
+		vpHeight := int(float64(m.height) * 0.20)
+		if vpHeight < 3 { vpHeight = 3 }
+		
+		vpFullHeight := int(float64(m.height) * 0.40)
+		if vpFullHeight < 5 { vpFullHeight = 5 }
+
 		m.viewport.Width = m.width - docStyle.GetHorizontalFrameSize()*2 - 4
 		m.viewport.Height = vpHeight
+		
+		m.fullContentViewport.Width = m.width - docStyle.GetHorizontalFrameSize()*2 - 4
+		m.fullContentViewport.Height = vpFullHeight
+
 		if m.isReady {
 			rawContent := m.diffCache[m.currentRevision.RevisionID]
 			wrapped := wordwrap.String(rawContent, m.viewport.Width)
 			m.viewport.SetContent(wrapped)
+			
+			// Update Full Content Viewport too
+			highlightedFull := highlightContent(m.currentRevision.Content, m.currentRevision.DiffAfter)
+			wrappedFull := wordwrap.String(highlightedFull, m.fullContentViewport.Width)
+			m.fullContentViewport.SetContent(wrappedFull)
 		}
 
 	case tickMsg:
@@ -370,6 +394,23 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.isReady = true
 			wrapped := wordwrap.String(msg.content, m.viewport.Width)
 			m.viewport.SetContent(wrapped)
+			
+			// Set Full Content
+			highlightedFull := highlightContent(m.currentRevision.Content, m.currentRevision.DiffAfter)
+			wrappedFull := wordwrap.String(highlightedFull, m.fullContentViewport.Width)
+			m.fullContentViewport.SetContent(wrappedFull)
+			
+			// Attempt to center on highlight (approximate line)
+			if m.currentRevision.DiffAfter != "" {
+				lines := strings.Split(m.currentRevision.Content, "\n")
+				for i, line := range lines {
+					if strings.Contains(line, m.currentRevision.DiffAfter) {
+						m.fullContentViewport.GotoTop() 
+						m.fullContentViewport.SetYOffset(i)
+						break
+					}
+				}
+			}
 		}
 		return m, nil
 
@@ -584,7 +625,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "s":
 			m.state = stateSettings
 			m.settingsCursor = 0
-			// Remove buildSettingsForm call
 			return m, nil
 		case "d":
 			m.state = stateDashboard
@@ -599,11 +639,19 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.cursor > 0 { m.cursor-- }
 			case "down":
 				if m.cursor < len(m.choices)-1 { m.cursor++ }
-			case "j", "k", "pgup", "pgdown":
-				m.viewport, vpCmd = m.viewport.Update(msg)
-				cmds = append(cmds, vpCmd)
-			case "enter", " ":
-				selected := m.choices[m.cursor]
+			            case "j", "pgdown":
+			                m.viewport, vpCmd = m.viewport.Update(msg)
+			                cmds = append(cmds, vpCmd)
+			            case "k", "pgup":
+			                m.viewport, vpCmd = m.viewport.Update(msg)
+			                cmds = append(cmds, vpCmd)
+			            case "J": // Scroll Full Content Down
+			                 m.fullContentViewport, vpCmd = m.fullContentViewport.Update(tea.KeyMsg{Type: tea.KeyPgDown})
+			                 cmds = append(cmds, vpCmd)
+			            case "K": // Scroll Full Content Up
+			                 m.fullContentViewport, vpCmd = m.fullContentViewport.Update(tea.KeyMsg{Type: tea.KeyPgUp})
+			                 cmds = append(cmds, vpCmd)
+			            case "enter", " ":				selected := m.choices[m.cursor]
 
 				if m.currentStep == 0 {
 					m.selectedBias = selected
@@ -644,14 +692,21 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.selectedTopic = ""
 
 					// Check cache
-				if content, ok := m.diffCache[m.currentRevision.RevisionID]; ok {
+					if content, ok := m.diffCache[m.currentRevision.RevisionID]; ok {
 						m.isReady = true
 						wrapped := wordwrap.String(content, m.viewport.Width)
 						m.viewport.SetContent(wrapped)
-						m.viewport.GotoTop()
+						
+						// Update Full Content
+						highlightedFull := highlightContent(m.currentRevision.Content, m.currentRevision.DiffAfter)
+						wrappedFull := wordwrap.String(highlightedFull, m.fullContentViewport.Width)
+						m.fullContentViewport.SetContent(wrappedFull)
+						m.fullContentViewport.GotoTop()
+
 					} else {
 						m.isReady = false
 						m.viewport.SetContent("Loading...")
+						m.fullContentViewport.SetContent("Loading...")
 						cmds = append(cmds, processDiffCmd(m.currentRevision.RevisionID, m.currentRevision.DiffBefore, m.currentRevision.DiffAfter))
 					}
 					
@@ -798,6 +853,9 @@ func (m model) View() string {
 		diffView = m.viewport.View()
 	}
 
+    // Full Content View
+    fullView := m.fullContentViewport.View()
+    
 	// Categories
 	var s strings.Builder
 	prompt := "Step 1/2: Select Political Bias:"
@@ -824,7 +882,7 @@ func (m model) View() string {
 	bird := birdStyle.Render(m.birdFrame)
 
 	// Help
-	help := helpStyle.Render("Use ↑/↓ to select, j/k to scroll diff, Enter to confirm, 's' for Settings, 'd' for Dashboard, 'q' to quit.")
+	help := helpStyle.Render("Use ↑/↓ to select, j/k to scroll diff, J/K to scroll context, Enter to confirm, 's' to Settings, 'd' to Dashboard, 'q' to quit.")
 
 	leftPanel := s.String()
 	rightPanel := bird
@@ -834,8 +892,9 @@ func (m model) View() string {
 		feedback,
 		title,
 		info,
-		diffView,
-		content,
+		        diffView,
+		        lipgloss.NewStyle().Bold(true).Render("AI Context (Scroll with J/K):"),
+		        fullView,		content,
 		help,
 	))
 }
@@ -962,6 +1021,15 @@ func renderDiff(text1, text2 string) string {
 	}
 
 	return sb.String()
+}
+
+func highlightContent(content, target string) string {
+    if content == "" || target == "" {
+        return content
+    }
+    // Simple replace
+    styleAdd := lipgloss.NewStyle().Background(lipgloss.Color("22")).Foreground(lipgloss.Color("46"))
+    return strings.ReplaceAll(content, target, styleAdd.Render(target))
 }
 
 func logToFile(message string) {

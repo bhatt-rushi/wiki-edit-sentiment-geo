@@ -41,6 +41,7 @@ def init_db():
             is_ip INTEGER,
             manual_bias TEXT,
             manual_topic TEXT,
+            content TEXT,
             FOREIGN KEY (article_url) REFERENCES articles (url)
         )
     ''')
