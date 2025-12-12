@@ -89,11 +89,8 @@ def predict_topic(text):
     topic = "N/A"
     if zero_shot_pipeline:
         try:
-            candidate_labels = [
-                "Politics", "International Relations", "Conflict", "Geography",
-                "History", "Culture", "Economy", "Technology", "Social Issues",
-                "Biography", "Science", "Arts", "Sports", "Neutral", "Propaganda"
-            ]
+            with open("data/topic_categories.json", "r") as f:
+                candidate_labels = json.load(f)
             
             # Zero-shot classification returns a list of scores for labels
             # We want the top one
