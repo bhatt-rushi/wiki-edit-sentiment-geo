@@ -4,11 +4,11 @@ A hybrid Python/Go application that analyzes Wikipedia revision histories for se
 
 ```mermaid
 graph TD
-    %% Styles
-    classDef storage fill:#eee,stroke:#333,stroke-width:2px;
-    classDef ext fill:#f9f,stroke:#333,stroke-width:2px;
-    classDef process fill:#bbf,stroke:#333,stroke-width:2px;
-    classDef ai fill:#dfd,stroke:#333,stroke-width:2px;
+    %% Styles - Enforcing black text for legibility on light backgrounds
+    classDef storage fill:#eee,stroke:#333,stroke-width:2px,color:#000;
+    classDef ext fill:#f9f,stroke:#333,stroke-width:2px,color:#000;
+    classDef process fill:#bbf,stroke:#333,stroke-width:2px,color:#000;
+    classDef ai fill:#dfd,stroke:#333,stroke-width:2px,color:#000;
 
     %% Data Stores
     WikiDB[(SQLite: data/wiki.db)]:::storage
@@ -75,6 +75,7 @@ graph TD
         Report --> Outliers[Console: Temporal Outliers Table]
     end
 ```
+> **Note:** GitHub renders the diagram above as an SVG. To save it as an image, you can use the [Mermaid Live Editor](https://mermaid.live/) by copying the code block above.
 
 ## Features
 
