@@ -124,6 +124,7 @@ type model struct {
 
 	// UI State
 	uniqueDescs []string // Cache of unique descriptions
+	uniqueTopics []string // Cache of unique topics from DB
 	choices     []string // Current choices to display (points to biasCategories or topicCategories)
 	cursor      int      // which item our cursor is pointing at
 	quitting    bool
@@ -167,6 +168,7 @@ func newModel(db *sql.DB, biasCats []string, topicCats []string, scoredCount int
 	}
 	
 	m.uniqueDescs = m.getUniqueDescriptions()
+	m.uniqueTopics = m.getUniqueTopics()
 
 	// Initial fetch with default settings
 	m.fetchRevisions()
@@ -192,6 +194,25 @@ func (m *model) getUniqueDescriptions() []string {
 		}
 	}
 	return descs
+}
+
+func (m *model) getUniqueTopics() []string {
+	rows, err := m.db.Query("SELECT ai_topic, COUNT(*) as cnt FROM revisions WHERE manual_bias IS NULL AND ai_topic IS NOT NULL AND ai_topic != '' GROUP BY ai_topic ORDER BY cnt DESC")
+	if err != nil {
+		logToFile(fmt.Sprintf("Failed to fetch topics: %v", err))
+		return []string{}
+	}
+	defer rows.Close()
+
+	var topics []string
+	for rows.Next() {
+		var topic string
+		var count int
+		if err := rows.Scan(&topic, &count); err == nil {
+			topics = append(topics, topic)
+		}
+	}
+	return topics
 }
 
 func (m *model) fetchRevisions() {
@@ -387,7 +408,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						}
 					}
 				} else if m.settingsCursor == 2 { // Topic
-					allTopics := append([]string{"Any"}, m.topicCategories...)
+					allTopics := append([]string{"Any"}, m.uniqueTopics...)
 					curr := "Any"
 					if m.filterTopic != "" {
 						curr = m.filterTopic
@@ -434,7 +455,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						}
 					}
 				} else if m.settingsCursor == 2 { // Topic
-					allTopics := append([]string{"Any"}, m.topicCategories...)
+					allTopics := append([]string{"Any"}, m.uniqueTopics...)
 					curr := "Any"
 					if m.filterTopic != "" {
 						curr = m.filterTopic
