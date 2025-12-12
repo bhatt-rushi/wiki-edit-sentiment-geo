@@ -87,8 +87,15 @@ Launch the interactive terminal application to review data and view the dashboar
 *   `d`: Open **Dashboard** (View analytics charts).
 *   `q`: Quit.
 
-### Step 5: Analyze Label Agreement
-Generate a detailed comparison report between Human and AI labels, including Confusion Matrices, Precision/Recall/F1-scores, and Distribution Bias. This also exports a GeoJSON file (`agreement_map.geojson`) for mapping the agreement rates per article.
+### Step 5: Analyze Label Agreement & Trends
+Generate a comprehensive report that includes:
+1.  **Human vs AI Agreement**: Confusion Matrices, Precision/Recall/F1-scores, and Distribution Bias analysis.
+2.  **AI Survey**: Analysis of unlabeled data to identify dominant topics and stances across the dataset.
+3.  **Temporal Outliers**: Detection of months with anomalous revision activity or bias scores.
+
+This command exports two GeoJSON files:
+*   `agreement_map.geojson`: Visualizes agreement rates per article.
+*   `ai_survey_map.geojson`: Visualizes AI-detected dominant topics and stances for all articles.
 
 ```bash
 app compare-labels
