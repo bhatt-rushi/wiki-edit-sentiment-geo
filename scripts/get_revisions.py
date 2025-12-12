@@ -346,8 +346,8 @@ def get_revisions(debug_mode=None):
                                 except Exception:
                                     pass
 
-                            start = max(0, best_idx - 500)
-                            end = min(len(curr_content), best_idx + len(after_text) + 500)
+                            start = max(0, best_idx - int(len(after_text) * 0.5))
+                            end = min(len(curr_content), best_idx + len(after_text) + int(len(after_text) * 0.5))
                             ai_context = curr_content[start:end]
 
                     ai_topic = predict_topic(ai_context)

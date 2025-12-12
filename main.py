@@ -25,7 +25,10 @@ def main():
             get_revisions(debug_mode=debug_mode)
             return
         elif cmd == "fetch-articles":
-            get_articles()
+            url = None
+            if len(sys.argv) > 2:
+                url = sys.argv[2]
+            get_articles(specific_url=url)
             return
         elif cmd == "init-db":
             init_db()
@@ -38,7 +41,7 @@ def main():
             return
         else:
             print(f"Unknown command: {cmd}")
-            print("Usage: app [revision-fetch-translated [--debug] | fetch-articles | init-db | compare-labels [article_url]]")
+            print("Usage: app [revision-fetch-translated [--debug] | fetch-articles [url] | init-db | compare-labels [article_url]]")
             return
 
     # Default behavior if no arguments provided (check DB and run if empty)
