@@ -4,6 +4,7 @@ import sqlite3
 from scripts.get_articles import get_articles
 from scripts.get_revisions import get_revisions
 from scripts.init_db import init_db
+from scripts.compare_labels import main as compare_labels
 
 DB_PATH = "data/wiki.db"
 
@@ -14,6 +15,7 @@ def main():
       app revision-fetch-translated
       app fetch-articles
       app init-db
+      app compare-labels
     """
     if len(sys.argv) > 1:
         cmd = sys.argv[1]
@@ -28,9 +30,12 @@ def main():
         elif cmd == "init-db":
             init_db()
             return
+        elif cmd == "compare-labels":
+            compare_labels()
+            return
         else:
             print(f"Unknown command: {cmd}")
-            print("Usage: app [revision-fetch-translated [--debug] | fetch-articles | init-db]")
+            print("Usage: app [revision-fetch-translated [--debug] | fetch-articles | init-db | compare-labels]")
             return
 
     # Default behavior if no arguments provided (check DB and run if empty)

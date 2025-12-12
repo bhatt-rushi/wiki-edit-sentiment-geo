@@ -59,4 +59,4 @@ def get_articles():
 
     conn.commit()
     conn.close()
-    print(f"Inserted {len(data["results"]["bindings"])} articles into {DB_PATH}")
+    print(f"Inserted {len(data['results']['bindings'])} articles into {DB_PATH}")
