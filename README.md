@@ -140,19 +140,21 @@ app init-db
 ```
 
 ### Step 2: Fetch Articles (Optional)
-Populate the database with a list of articles to track (if not already seeded). This step uses the SPARQL query defined in `queries/query.sparql`.
+Populate the database with a list of articles to track (if not already seeded). This step uses the SPARQL query defined in `queries/query.sparql`. You can also manually add a specific article by providing its URL.
 
 ```bash
 app fetch-articles
+# Optional: Add a specific article
+app fetch-articles https://en.wikipedia.org/wiki/Example_Article
 ```
 
 ### Step 3: Fetch & Analyze Revisions
-Run the main ingestion script to download revisions and perform AI analysis. This process can be long-running.
+Run the main ingestion script to download revisions and perform AI analysis. This process can be long-running. You can limit the number of articles processed and control the number of worker processes per GPU.
 
 ```bash
 app revision-fetch-translated
-# Optional: Run with debug output
-app revision-fetch-translated --debug
+# Optional: Run with debug output, limit articles, and set workers per GPU
+app revision-fetch-translated --debug --limit 100 --workers-per-gpu 2
 ```
 
 ### Step 4: Run the TUI
@@ -165,6 +167,7 @@ Launch the interactive terminal application to review data and view the dashboar
 **TUI Controls:**
 *   `↑/↓`: Navigate menus.
 *   `Enter`: Select an option or confirm a classification.
+*   `n`: Skip the current revision (marks as SKIPPED).
 *   `s`: Open **Settings** (Filter by topic/description, change sort order).
 *   `d`: Open **Dashboard** (View analytics charts).
 *   `j/k`: Scroll the diff view.
