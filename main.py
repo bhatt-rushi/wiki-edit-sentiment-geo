@@ -12,16 +12,25 @@ def main():
     """
     Main function to orchestrate the data fetching process.
     Supports CLI commands:
-      app revision-fetch-translated
-      app fetch-articles
       app init-db
+      app fetch-articles
+      app revision-fetch
       app compare-labels
     """
     if len(sys.argv) > 1:
         cmd = sys.argv[1]
         debug_mode = "--debug" in sys.argv
         
-        if cmd == "revision-fetch-translated":
+        if cmd == "init-db":
+            init_db()
+            return
+        elif cmd == "fetch-articles":
+            url = None
+            if len(sys.argv) > 2:
+                url = sys.argv[2]
+            get_articles(specific_url=url)
+            return
+        elif cmd == "revision-fetch":
             # Ensure we have articles to process
             if not os.path.exists(DB_PATH):
                 init_db()
@@ -58,15 +67,6 @@ def main():
             
             get_revisions(debug_mode=debug_mode, limit=limit, workers_per_gpu=workers_per_gpu)
             return
-        elif cmd == "fetch-articles":
-            url = None
-            if len(sys.argv) > 2:
-                url = sys.argv[2]
-            get_articles(specific_url=url)
-            return
-        elif cmd == "init-db":
-            init_db()
-            return
         elif cmd == "compare-labels":
             article_url = None
             if len(sys.argv) > 2:
@@ -75,7 +75,7 @@ def main():
             return
         else:
             print(f"Unknown command: {cmd}")
-            print("Usage: app [revision-fetch-translated [--debug] | fetch-articles [url] | init-db | compare-labels [article_url]]")
+            print("Usage: app [init-db | fetch-articles [url] | revision-fetch [--debug] [--limit N] [--workers-per-gpu N] | compare-labels [article_url]]")
             return
 
     # Default behavior if no arguments provided (check DB and run if empty)
