@@ -152,9 +152,9 @@ app fetch-articles https://en.wikipedia.org/wiki/Example_Article
 Run the main ingestion script to download revisions and perform AI analysis. This process can be long-running. You can limit the number of articles processed and control the number of worker processes per GPU.
 
 ```bash
-app revision-fetch-translated
+app revision-fetch
 # Optional: Run with debug output, limit articles, and set workers per GPU
-app revision-fetch-translated --debug --limit 100 --workers-per-gpu 2
+app revision-fetch --debug --limit 100 --workers-per-gpu 2
 ```
 
 ### Step 4: Run the TUI
