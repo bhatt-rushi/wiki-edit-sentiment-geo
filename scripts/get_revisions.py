@@ -293,8 +293,8 @@ def process_batch(articles, device_id, debug_mode, position_index=None):
                                 except Exception:
                                     pass
                             
-                            start = max(0, best_idx - int(len(after_text) * 0.5))
-                            end = min(len(curr_content), best_idx + len(after_text) + int(len(after_text) * 0.5))
+                            start = max(0, best_idx - len(after_text))
+                            end = min(len(curr_content), best_idx + len(after_text) + len(after_text))
                             ai_context = curr_content[start:end]
 
                     ai_topic = predict_topic(ai_context, device_id)
