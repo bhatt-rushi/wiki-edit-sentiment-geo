@@ -13,6 +13,7 @@ from transformers import AutoTokenizer, AutoModelForSequenceClassification, pipe
 import numpy as np
 import sqlite3
 import multiprocessing
+from tqdm import tqdm
 
 # Global model cache (per process)
 BIAS_MODEL_NAME = "newsmediabias/UnBIAS-classifier"
@@ -157,17 +158,24 @@ def get_structured_changes(prev_content, curr_content, lang='en'):
                 changes.append({'type': 'Text:Sentence:Change', 'before': text_edit.text, 'after': text_edit.text, 'desc': f"Changed Sentence"})
     return changes
 
-def process_batch(articles, device_id, debug_mode):
+def process_batch(articles, device_id, debug_mode, position_index=None):
     """
     Worker function to process a batch of articles on a specific device.
     """
     conn = sqlite3.connect(DB_PATH, timeout=60.0)
     c = conn.cursor()
     
-    print(f"[Worker GPU:{device_id}] Starting processing of {len(articles)} articles.")
+    # Calculate position for tqdm bar (0 if CPU/single GPU, device_id otherwise)
+    # If position_index is provided, use it. Otherwise default to device_id logic (backwards compat or single worker)
+    if position_index is not None:
+        pos = position_index
+    else:
+        pos = device_id if device_id >= 0 else 0
+
+    print(f"[Worker GPU:{device_id} Pos:{pos}] Starting processing of {len(articles)} articles.")
     
-    for article_url, article_coord in articles:
-        if debug_mode: print(f"[GPU:{device_id}] Fetching revisions for {article_url}...")
+    for article_url, article_coord in tqdm(articles, desc=f"GPU {device_id}-W{pos}", position=pos, leave=True):
+        if debug_mode: tqdm.write(f"[GPU:{device_id}] Fetching revisions for {article_url}...")
 
         title = urllib.parse.unquote(article_url.split("/")[-1])
         parsed_url = urllib.parse.urlparse(article_url)
@@ -193,12 +201,12 @@ def process_batch(articles, device_id, debug_mode):
                 with urllib.request.urlopen(req) as response:
                     data = json.loads(response.read().decode())
             except Exception as e:
-                print(f"Error fetching {url_req}: {e}")
+                tqdm.write(f"Error fetching {url_req}: {e}")
                 break
 
             page_ids = list(data["query"]["pages"].keys())
             if not page_ids or page_ids[0] == "-1":
-                print(f"  Article not found: {title}")
+                tqdm.write(f"  Article not found: {title}")
                 break
             
             page_id = page_ids[0]
@@ -210,7 +218,7 @@ def process_batch(articles, device_id, debug_mode):
             else:
                 break
         
-        if debug_mode: print(f"[GPU:{device_id}] Processing {len(revisions_info)} revisions for {title}...")
+        if debug_mode: tqdm.write(f"[GPU:{device_id}] Processing {len(revisions_info)} revisions for {title}...")
 
         for i in range(len(revisions_info)):
             rev = revisions_info[i]
@@ -236,7 +244,7 @@ def process_batch(articles, device_id, debug_mode):
                 # Check for duplicates in DB for this article
                 c.execute("SELECT 1 FROM revisions WHERE article_url = ? AND (diff_after = ? OR diff_before = ?)", (article_url, text_to_check, text_to_check))
                 if c.fetchone():
-                     if debug_mode: print(f"[GPU:{device_id}] Skipping duplicate text for {article_url}")
+                     if debug_mode: tqdm.write(f"[GPU:{device_id}] Skipping duplicate text for {article_url}")
                      continue
 
                 try:
@@ -315,14 +323,16 @@ def process_batch(articles, device_id, debug_mode):
     print(f"[Worker GPU:{device_id}] Finished.")
 
 
-def get_revisions(debug_mode=None, limit=None):
+def get_revisions(debug_mode=None, limit=None, workers_per_gpu=1):
     if debug_mode is None:
         parser = argparse.ArgumentParser()
         parser.add_argument("--debug", action="store_true", help="Enable debug output")
         parser.add_argument("--limit", type=int, help="Limit number of articles to process")
+        parser.add_argument("--workers-per-gpu", type=int, default=1, help="Number of workers per GPU")
         args, _ = parser.parse_known_args()
         debug_mode = args.debug
         if limit is None: limit = args.limit
+        workers_per_gpu = args.workers_per_gpu
 
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
@@ -340,21 +350,26 @@ def get_revisions(debug_mode=None, limit=None):
 
     num_gpus = torch.cuda.device_count()
     
-    if num_gpus > 1:
-        print(f"Found {num_gpus} GPUs. Distributing work...")
+    if num_gpus > 0:
+        total_workers = num_gpus * workers_per_gpu
+        print(f"Found {num_gpus} GPUs. Spawning {workers_per_gpu} workers per GPU (Total: {total_workers})...")
         
         # Split articles
-        chunks = np.array_split(articles_from_db, num_gpus)
+        chunks = np.array_split(articles_from_db, total_workers)
         processes = []
         
         # Use Spawn context for compatibility
         ctx = multiprocessing.get_context('spawn')
         
-        for i in range(num_gpus):
+        for i in range(total_workers):
             chunk = chunks[i].tolist() # Convert numpy array back to list
             if not chunk: continue
             
-            p = ctx.Process(target=process_batch, args=(chunk, i, debug_mode))
+            # Assign GPU in round-robin or blocked? 
+            # If workers_per_gpu=2, workers 0,1 -> GPU 0. workers 2,3 -> GPU 1.
+            assigned_gpu = i // workers_per_gpu
+            
+            p = ctx.Process(target=process_batch, args=(chunk, assigned_gpu, debug_mode, i))
             p.start()
             processes.append(p)
         

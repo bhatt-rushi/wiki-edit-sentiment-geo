@@ -39,6 +39,7 @@ def main():
             conn.close()
 
             limit = None
+            workers_per_gpu = 1
             if "--limit" in sys.argv:
                 try:
                     limit_idx = sys.argv.index("--limit")
@@ -47,7 +48,15 @@ def main():
                 except ValueError:
                     print("Invalid limit value provided.")
             
-            get_revisions(debug_mode=debug_mode, limit=limit)
+            if "--workers-per-gpu" in sys.argv:
+                try:
+                    w_idx = sys.argv.index("--workers-per-gpu")
+                    if w_idx + 1 < len(sys.argv):
+                        workers_per_gpu = int(sys.argv[w_idx + 1])
+                except ValueError:
+                    print("Invalid workers-per-gpu value provided.")
+            
+            get_revisions(debug_mode=debug_mode, limit=limit, workers_per_gpu=workers_per_gpu)
             return
         elif cmd == "fetch-articles":
             url = None
