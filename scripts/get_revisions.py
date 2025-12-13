@@ -230,6 +230,14 @@ def process_batch(articles, device_id, debug_mode):
             for change in changes:
                 before_text = change['before']
                 after_text = change['after']
+                
+                text_to_check = after_text if after_text.strip() else before_text
+                
+                # Check for duplicates in DB for this article
+                c.execute("SELECT 1 FROM revisions WHERE article_url = ? AND (diff_after = ? OR diff_before = ?)", (article_url, text_to_check, text_to_check))
+                if c.fetchone():
+                     if debug_mode: print(f"[GPU:{device_id}] Skipping duplicate text for {article_url}")
+                     continue
 
                 try:
                     clean_before = mwparserfromhell.parse(before_text).strip_code().strip()
