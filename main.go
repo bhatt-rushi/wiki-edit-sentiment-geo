@@ -630,6 +630,63 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.state = stateDashboard
 			m.dashboard = NewDashboardModel(m.db, m.width, m.height)
 			return m, m.dashboard.Init()
+		case "n": // Skip revision
+			m.scoredCount++
+			_, err := m.db.Exec("UPDATE revisions SET manual_bias = 'SKIPPED', manual_topic = 'SKIPPED' WHERE id = ?", m.currentRevision.RevisionID)
+			if err != nil {
+				logToFile(fmt.Sprintf("Error skipping revision %v: %v", m.currentRevision.RevisionID, err))
+			}
+
+			if len(m.unscoredRevisions) > 0 {
+				m.unscoredRevisions = m.unscoredRevisions[1:]
+			}
+
+			delete(m.diffCache, m.currentRevision.RevisionID)
+
+			if len(m.unscoredRevisions) == 0 {
+				// Try fetching more
+				m.fetchRevisions()
+			}
+
+			if len(m.unscoredRevisions) == 0 {
+				return m, nil
+			}
+
+			m.currentRevision = m.unscoredRevisions[0]
+			m.currentStep = 0
+			m.choices = m.biasCategories
+			m.cursor = 0
+			m.selectedBias = ""
+			m.selectedTopic = ""
+
+			// Check cache
+			if content, ok := m.diffCache[m.currentRevision.RevisionID]; ok {
+				m.isReady = true
+				wrapped := wordwrap.String(content, m.viewport.Width)
+				m.viewport.SetContent(wrapped)
+				
+				// Update Full Content
+				highlightedFull := highlightContent(m.currentRevision.Content, m.currentRevision.DiffAfter)
+				wrappedFull := wordwrap.String(highlightedFull, m.fullContentViewport.Width)
+				m.fullContentViewport.SetContent(wrappedFull)
+				m.fullContentViewport.GotoTop()
+
+			} else {
+				m.isReady = false
+				m.viewport.SetContent("Loading...")
+				m.fullContentViewport.SetContent("Loading...")
+				cmds = append(cmds, processDiffCmd(m.currentRevision.RevisionID, m.currentRevision.DiffBefore, m.currentRevision.DiffAfter))
+			}
+			
+			// Pre-load next few
+			for i := 1; i < 3 && i < len(m.unscoredRevisions); i++ {
+				rev := m.unscoredRevisions[i]
+				if _, ok := m.diffCache[rev.RevisionID]; !ok {
+					cmds = append(cmds, processDiffCmd(rev.RevisionID, rev.DiffBefore, rev.DiffAfter))
+				}
+			}
+			cmds = append(cmds, tick(time.Millisecond*150))
+			return m, tea.Batch(cmds...)
 		}
 
 		if m.isReady && len(m.unscoredRevisions) > 0 {
@@ -882,7 +939,7 @@ func (m model) View() string {
 	bird := birdStyle.Render(m.birdFrame)
 
 	// Help
-	help := helpStyle.Render("Use ↑/↓ to select, j/k to scroll diff, J/K to scroll context, Enter to confirm, 's' to Settings, 'd' to Dashboard, 'q' to quit.")
+	help := helpStyle.Render("Use ↑/↓ to select, j/k to scroll diff, J/K to scroll context, Enter to confirm, 'n' to skip, 's' to Settings, 'd' to Dashboard, 'q' to quit.")
 
 	leftPanel := s.String()
 	rightPanel := bird
