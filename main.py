@@ -22,7 +22,32 @@ def main():
         debug_mode = "--debug" in sys.argv
         
         if cmd == "revision-fetch-translated":
-            get_revisions(debug_mode=debug_mode)
+            # Ensure we have articles to process
+            if not os.path.exists(DB_PATH):
+                init_db()
+            
+            conn = sqlite3.connect(DB_PATH)
+            c = conn.cursor()
+            try:
+                c.execute("SELECT COUNT(*) FROM articles")
+                if c.fetchone()[0] == 0:
+                    print("No articles found in DB. Fetching articles...")
+                    get_articles()
+            except sqlite3.OperationalError:
+                init_db()
+                get_articles()
+            conn.close()
+
+            limit = None
+            if "--limit" in sys.argv:
+                try:
+                    limit_idx = sys.argv.index("--limit")
+                    if limit_idx + 1 < len(sys.argv):
+                        limit = int(sys.argv[limit_idx + 1])
+                except ValueError:
+                    print("Invalid limit value provided.")
+            
+            get_revisions(debug_mode=debug_mode, limit=limit)
             return
         elif cmd == "fetch-articles":
             url = None
